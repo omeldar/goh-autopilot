@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "autopilot",
+  "version": "${version}",
+  "name": "Autopilot",
+  "description": "Record what you do at a farm, replay it on a loop, and let a Claude session drive it. Client-side only: it presses the same keys you would, changes no game mechanic, and costs nothing while idle. Unofficial: not made or endorsed by Mojang, Microsoft or Anthropic.",
+  "authors": ["omeldar"],
+  "contact": {
+    "homepage": "https://github.com/omeldar/goh-autopilot",
+    "sources": "https://github.com/omeldar/goh-autopilot",
+    "issues": "https://github.com/omeldar/goh-autopilot/issues"
+  },
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["com.omeldar.autopilot.AutopilotClient"]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "minecraft": "~1.21.11",
+    "java": ">=21",
+    "fabric-api": "*"
+  },
+  "suggests": { "lumipet": "*" }
+}
