@@ -34,7 +34,7 @@ import java.util.Locale;
 public final class Pilot implements Task {
     public enum Mode { AUTO, WALK, FLY, ELYTRA }
 
-    private enum Phase { TAKEOFF, CRUISE, DESCEND, GROUND, DONE }
+    private enum Phase { TAKEOFF, CRUISE, APPROACH, DESCEND, GROUND, DONE }
 
     private final double tx, ty, tz;
     private final Mode requested;
@@ -45,6 +45,11 @@ public final class Pilot implements Task {
     private final Walk walk = new Walk();
     private int ticks;
     private int cruiseY;
+    private int climbTicks;
+    private int sinceAirCheck;
+    private int stuckSeconds;
+    private double lastAirFlat = Double.MAX_VALUE;
+    private double lastAirY = -Double.MAX_VALUE;
     private String note = "";
 
     public Pilot(double x, double y, double z, Mode mode, String label) {
@@ -123,9 +128,14 @@ public final class Pilot implements Task {
         }
 
         double flat = Math.hypot(tx - p.getX(), tz - p.getZ());
-        if (flat <= cfg.arriveWithin && p.isOnGround() && Math.abs(ty - p.getY()) <= 2.5) {
+        if (flat <= cfg.arriveWithin && p.isOnGround()) {
             release(mc);
-            note = "arrived";
+            double dy = p.getY() - ty;
+            note = Math.abs(dy) <= 2.5
+                    ? "arrived"
+                    : String.format(Locale.ROOT, "arrived over %.0f %.0f, but on the ground at "
+                        + "y %.0f rather than the y %.0f asked for - nothing to stand on there, "
+                        + "or a different floor", tx, tz, p.getY(), ty);
             return false;
         }
 
@@ -148,6 +158,13 @@ public final class Pilot implements Task {
             case BLOCKED -> {
                 note = "stopped: no way forward on foot from here. "
                      + "Walking does not dig, bridge or jump gaps.";
+                return false;
+            }
+            case WRONG_LEVEL -> {
+                MinecraftClient client = MinecraftClient.getInstance();
+                double y = client.player == null ? ty : client.player.getY();
+                note = String.format(Locale.ROOT, "stopped over %.0f %.0f but at y %.0f, not "
+                        + "the y %.0f asked for. Walking cannot change floors.", tx, tz, y, ty);
                 return false;
             }
             default -> {
@@ -182,18 +199,47 @@ public final class Pilot implements Task {
             return true;
         }
 
-        boolean closing = flat < 8;
-        if (closing) phase = Phase.DESCEND;
+        double speed = p.getVelocity().horizontalLength();
+        if (phase == Phase.CRUISE && flat < 48) phase = Phase.APPROACH;
+
+        if (phase == Phase.APPROACH) {
+            // Creative flight can hover, so use it: come in at altitude, brake so the
+            // momentum runs out over the spot, then go straight down. The first version
+            // started descending eight blocks out with sprint momentum still on, overshot
+            // the farm by eight blocks and set down on a tree.
+            //
+            // Flight drag takes about 9% of horizontal speed a tick, so the distance it
+            // still coasts is roughly speed / 0.09. Hold forward only while further than that.
+            float facing = Math.abs(MathHelper.wrapDegrees(
+                    Walk.yawToward(tx - p.getX(), tz - p.getZ()) - p.getYaw()));
+            faceTarget(mc, p, 0f);
+            Keys.hold(mc, Keys.SPRINT, flat > 24);
+            double coast = speed / 0.09 + 0.3;
+            // Arrive from above. The approach toward a farm on a hill once started below the
+            // hilltop and flew into the slope, so get a few blocks over the target's own level
+            // before pressing on, and climb over whatever is in front.
+            boolean low = p.getY() < ty + 4;
+            boolean pushing = !low && flat > coast && facing < 20f;
+            Keys.hold(mc, Keys.FORWARD, pushing);
+            Keys.hold(mc, Keys.JUMP, low || solidAhead(mc, p, 2) || climbTicks > 0);
+            Keys.hold(mc, Keys.SNEAK, false);
+            if (stuckInAir(p, flat, pushing, low)) return false;
+            if (flat <= 0.6 && speed < 0.06) phase = Phase.DESCEND;
+            return true;
+        }
 
         if (phase == Phase.DESCEND) {
-            Keys.hold(mc, Keys.FORWARD, flat > 1.2);
+            Keys.hold(mc, Keys.FORWARD, false);
             Keys.hold(mc, Keys.SPRINT, false);
-            faceTarget(mc, p, 25f);
             Keys.hold(mc, Keys.JUMP, false);
             // Sneak descends in flight. Vanilla drops the flying flag on touchdown, so
             // landing needs nothing beyond holding it until the ground arrives.
             Keys.hold(mc, Keys.SNEAK, !p.isOnGround());
-            if (p.isOnGround()) {
+            if (!p.isOnGround() && flat > 1.5) {
+                // Drifted off the column on the way down; go back and hover again.
+                Keys.hold(mc, Keys.SNEAK, false);
+                phase = Phase.APPROACH;
+            } else if (p.isOnGround()) {
                 Keys.hold(mc, Keys.SNEAK, false);
                 phase = Phase.GROUND;
                 walk.reset(p);
@@ -201,15 +247,46 @@ public final class Pilot implements Task {
             return true;
         }
 
-        // Cruise: hold altitude, react to anything in the way, and head for the target.
+        // Cruise. Climb first, then go: the flight back toward a hill once climbed and flew
+        // forward at the same time, met the treeline before reaching cruising height, and
+        // wedged itself into a canopy. Going straight up to altitude before moving off costs
+        // a couple of seconds and clears everything a lookahead of three blocks would miss.
         faceTarget(mc, p, 0f);
-        Keys.hold(mc, Keys.FORWARD, true);
-        Keys.hold(mc, Keys.SPRINT, true);
+        boolean climbFirst = p.getY() < cruiseY - 3;
+        Keys.hold(mc, Keys.FORWARD, !climbFirst);
+        Keys.hold(mc, Keys.SPRINT, !climbFirst);
 
         boolean low = p.getY() < cruiseY - 1;
         boolean wallAhead = solidAhead(mc, p, 3);
-        Keys.hold(mc, Keys.JUMP, low || wallAhead);
-        Keys.hold(mc, Keys.SNEAK, !low && !wallAhead && p.getY() > cruiseY + 3);
+        Keys.hold(mc, Keys.JUMP, low || wallAhead || climbTicks > 0);
+        Keys.hold(mc, Keys.SNEAK, !low && !wallAhead && climbTicks <= 0 && p.getY() > cruiseY + 3);
+        return !stuckInAir(p, flat, !climbFirst, climbFirst);
+    }
+
+    /**
+     * Pressing forward and not getting closer, or holding jump and not getting higher, means
+     * something is in the way that the look-ahead missed: an overhang, a tree canopy, the
+     * corner of a build. Climb for a second each time that is noticed, and give up with a
+     * reason after eight seconds of it, rather than hovering against a wall until the travel
+     * timeout.
+     */
+    private boolean stuckInAir(ClientPlayerEntity p, double flat, boolean pushing, boolean climbing) {
+        if (climbTicks > 0) climbTicks--;
+        if (++sinceAirCheck < 20) return false;
+        sinceAirCheck = 0;
+        boolean noProgress = (pushing && lastAirFlat - flat < 0.5)
+                || (climbing && !pushing && p.getY() - lastAirY < 0.5);
+        lastAirFlat = flat;
+        lastAirY = p.getY();
+        if (!noProgress) {
+            stuckSeconds = 0;
+            return false;
+        }
+        climbTicks = 20;
+        if (++stuckSeconds < 8) return false;
+        note = String.format(Locale.ROOT, "stopped: stuck in the air at %.0f %.0f %.0f, %.0f "
+                + "blocks short - something is in the way that climbing did not clear",
+                p.getX(), p.getY(), p.getZ(), flat);
         return true;
     }
 
@@ -318,6 +395,7 @@ public final class Pilot implements Task {
                 mode.name().toLowerCase(Locale.ROOT), label, flat);
     }
 
+    @Override
     public String outcome() {
         return note;
     }

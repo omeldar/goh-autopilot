@@ -23,4 +23,13 @@ public interface Task {
 
     /** One line of human-readable progress. */
     String status();
+
+    /**
+     * Why it finished, when there is more to say than "finished": arrived, landed on the
+     * wrong floor, ran three passes. Shown to the player and returned by the bridge, because
+     * a model polling get_status cannot read chat.
+     */
+    default String outcome() {
+        return "";
+    }
 }

@@ -114,7 +114,7 @@ public final class Replayer implements Task {
         appliedKeys = 0;
         pass++;
         if (loops != 0 && pass >= loops) {
-            note = "finished " + pass + " pass" + (pass == 1 ? "" : "es");
+            note = "ran " + pass + " pass" + (pass == 1 ? "" : "es");
             return false;
         }
 
@@ -124,7 +124,7 @@ public final class Replayer implements Task {
             return true;
         }
         if ("stop".equalsIgnoreCase(Config.get().onDrift)) {
-            note = "drifted off the anchor after " + pass + " passes: " + off;
+            note = "stopped: drifted off the anchor after " + pass + " passes: " + off;
             return false;
         }
         Chat.info("drifted off the anchor, walking back (" + off + ")");
@@ -138,14 +138,18 @@ public final class Replayer implements Task {
         // Thirty seconds is generous for a walk back onto a farm block, and short enough
         // that a macro left running in a changed world gives up rather than wanders.
         if (++realignTicks > 600) {
-            note = "could not get back to the anchor after " + pass + " passes";
+            note = "stopped: could not get back to the anchor after " + pass + " passes";
             walk.release(mc);
             return false;
         }
         Walk.Step step = walk.step(mc, macro.anchor.x, macro.anchor.y, macro.anchor.z,
                 Math.max(0.35, Config.get().anchorTolerance * 0.6));
         if (step == Walk.Step.BLOCKED) {
-            note = "the way back to the anchor is blocked";
+            note = "stopped: the way back to the anchor is blocked";
+            return false;
+        }
+        if (step == Walk.Step.WRONG_LEVEL) {
+            note = "stopped: drifted onto a different floor from the anchor";
             return false;
         }
         if (step == Walk.Step.ARRIVED) {
@@ -153,7 +157,7 @@ public final class Replayer implements Task {
             p.setYaw(macro.anchor.yaw);
             p.setPitch(macro.anchor.pitch);
             if (anchorComplaint(p) != null) {
-                note = "walked back but still off the anchor";
+                note = "stopped: walked back but still off the anchor";
                 return false;
             }
             phase = Phase.PLAY;
@@ -217,6 +221,7 @@ public final class Replayer implements Task {
         return pass;
     }
 
+    @Override
     public String outcome() {
         return note;
     }

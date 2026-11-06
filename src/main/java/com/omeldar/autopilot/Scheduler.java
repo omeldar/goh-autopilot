@@ -92,7 +92,9 @@ public final class Scheduler {
         } catch (Exception e) {
             AutopilotClient.LOG.warn("task {} threw while stopping", finished.name(), e);
         }
-        if (reason.startsWith("finished")) {
+        if (reason.startsWith("finished: stopped")) {
+            Chat.warn(finished.name() + " " + reason.substring("finished: ".length()));
+        } else if (reason.startsWith("finished")) {
             Chat.good(finished.name() + ": " + reason);
         } else {
             Chat.warn(finished.name() + " stopped: " + reason);
@@ -133,7 +135,13 @@ public final class Scheduler {
             return;
         }
         if (!more) {
-            end(mc, "finished");
+            String detail = "";
+            try {
+                detail = task.outcome();
+            } catch (Exception ignored) {
+                // An outcome is a courtesy; a task that cannot describe itself still finished.
+            }
+            end(mc, detail == null || detail.isBlank() ? "finished" : "finished: " + detail);
             return;
         }
 

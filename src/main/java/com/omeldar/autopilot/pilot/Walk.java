@@ -23,8 +23,17 @@ public final class Walk {
         MOVING,
         ARRIVED,
         /** Could not make progress: walled in, or a drop it will not take. */
-        BLOCKED
+        BLOCKED,
+        /**
+         * Standing over the target, but on a different floor - the target is in the air, in a
+         * cave below, or the y it was given was simply wrong. Walking cannot fix any of those,
+         * so it is reported rather than circled.
+         */
+        WRONG_LEVEL
     }
+
+    /** Inside this flat distance, the approach slows down for precision. */
+    private static final double CLOSE = 1.5;
 
     /** How far the view may swing in one tick, in degrees. */
     private static final float MAX_TURN = 14f;
@@ -51,18 +60,30 @@ public final class Walk {
 
         // Arrived means close on the flat and not on a different floor. The vertical test is
         // loose on purpose: standing on a slab or in a one-block dip is still arrived.
-        if (flat <= arriveWithin && Math.abs(dy) <= 2.5) {
+        if (flat <= arriveWithin) {
             release(mc);
-            return Step.ARRIVED;
+            if (Math.abs(dy) <= 2.5) return Step.ARRIVED;
+            // The first flight test circled a target for two minutes because its y was the
+            // y of the hill it took off from. Over the spot and on the wrong floor is an
+            // answer, not a reason to keep walking.
+            if (p.isOnGround() || p.isTouchingWater()) return Step.WRONG_LEVEL;
+            return Step.MOVING;
         }
 
-        turnToward(p, dx, dz);
+        boolean close = flat < CLOSE;
+        float facingError = turnToward(p, dx, dz, close ? 35f : MAX_TURN);
 
-        boolean sprint = flat > 4
+        // The last block and a half is the part a farm cares about. At walking speed and a
+        // hand-like turn rate the turning circle is about 0.8 blocks - wider than the third of
+        // a block a farm station needs - so a plain walk orbits the spot instead of stopping
+        // on it. Up close: sneak, which is slow enough to stop precisely and will not step off
+        // a platform edge, and only press forward once facing the spot.
+        boolean sprint = !close && flat > 4
                 && p.getHungerManager().getFoodLevel() > 6
                 && !p.isTouchingWater();
-        Keys.hold(mc, Keys.FORWARD, true);
+        Keys.hold(mc, Keys.FORWARD, !close || facingError < 25f);
         Keys.hold(mc, Keys.SPRINT, sprint);
+        Keys.hold(mc, Keys.SNEAK, close && !p.isTouchingWater());
 
         boolean jump = false;
         if (p.isTouchingWater()) {
@@ -102,6 +123,7 @@ public final class Walk {
         Keys.hold(mc, Keys.FORWARD, false);
         Keys.hold(mc, Keys.SPRINT, false);
         Keys.hold(mc, Keys.JUMP, false);
+        Keys.hold(mc, Keys.SNEAK, false);
     }
 
     // ---------------------------------------------------------------- helpers
@@ -111,14 +133,16 @@ public final class Walk {
         return (float) (MathHelper.atan2(dz, dx) * (180 / Math.PI)) - 90f;
     }
 
-    private static void turnToward(ClientPlayerEntity p, double dx, double dz) {
+    /** Turn toward a delta, at most {@code maxTurn} degrees; returns the error left after. */
+    private static float turnToward(ClientPlayerEntity p, double dx, double dz, float maxTurn) {
         float wanted = yawToward(dx, dz);
         float delta = MathHelper.wrapDegrees(wanted - p.getYaw());
-        float step = MathHelper.clamp(delta, -MAX_TURN, MAX_TURN);
+        float step = MathHelper.clamp(delta, -maxTurn, maxTurn);
         p.setYaw(p.getYaw() + step);
         // Looking slightly down keeps the step-up check meaningful and looks like a person
         // walking rather than staring at the horizon.
         p.setPitch(MathHelper.clamp(p.getPitch() + (10f - p.getPitch()) * 0.2f, -30f, 40f));
+        return Math.abs(delta - step);
     }
 
     /** True when there is a one-block step in front that a jump would clear. */

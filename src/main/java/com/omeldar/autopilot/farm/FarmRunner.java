@@ -103,11 +103,17 @@ public final class FarmRunner implements Task {
         switch (phase) {
             case TRAVEL -> {
                 if (leg != null && leg.tick(mc)) return true;
+                String travelled = leg == null ? "" : leg.outcome();
                 if (leg != null) leg.stop(mc, "leg done");
                 leg = null;
                 double flat = Math.hypot(farm.station.x - p.getX(), farm.station.z - p.getZ());
-                if (flat > 48) {
-                    note = "travel stopped " + (int) flat + " blocks short of " + farm.id;
+                // A travel leg that stopped for a reason ends the errand with that reason;
+                // walking on from wherever a flight gave up would only add a second failure.
+                boolean legStopped = travelled.startsWith("stopped");
+                if (legStopped || flat > 48) {
+                    note = legStopped ? travelled
+                         : "stopped: travel ended " + (int) flat + " blocks short of " + farm.id
+                           + (travelled.isBlank() ? "" : " (" + travelled + ")");
                     return false;
                 }
                 phase = Phase.STATION;
@@ -116,14 +122,19 @@ public final class FarmRunner implements Task {
             }
             case STATION -> {
                 if (++stationTicks > 1200) {
-                    note = "could not reach the station at " + farm.id;
+                    note = "stopped: could not reach the station at " + farm.id;
                     walk.release(mc);
                     return false;
                 }
                 Walk.Step step = walk.step(mc, farm.station.x, farm.station.y, farm.station.z,
                         Math.max(0.35, Config.get().anchorTolerance * 0.6));
                 if (step == Walk.Step.BLOCKED) {
-                    note = "the walk onto the station at " + farm.id + " is blocked";
+                    note = "stopped: the walk onto the station at " + farm.id + " is blocked";
+                    return false;
+                }
+                if (step == Walk.Step.WRONG_LEVEL) {
+                    note = "stopped: over the station at " + farm.id + " but on a different "
+                         + "floor. Check the station y in farms.json.";
                     return false;
                 }
                 if (step == Walk.Step.ARRIVED) {
@@ -145,7 +156,7 @@ public final class FarmRunner implements Task {
                 if (leg != null && leg.tick(mc)) return true;
                 if (leg != null) {
                     leg.stop(mc, "run macro done");
-                    note = ((Replayer) leg).outcome();
+                    note = leg.outcome();
                 }
                 leg = null;
                 return false;
@@ -163,7 +174,7 @@ public final class FarmRunner implements Task {
                 Replayer once = new Replayer(macro, 1);
                 String refusal = once.start(mc);
                 if (refusal != null) {
-                    note = "start macro refused: " + refusal;
+                    note = "stopped: start macro refused: " + refusal;
                     return false;
                 }
                 leg = once;
@@ -171,7 +182,7 @@ public final class FarmRunner implements Task {
                 Chat.info("running the start macro for " + farm.id);
                 return true;
             } catch (Exception e) {
-                note = "could not load the start macro: " + e.getMessage();
+                note = "stopped: could not load the start macro: " + e.getMessage();
                 return false;
             }
         }
@@ -184,7 +195,7 @@ public final class FarmRunner implements Task {
             Replayer run = new Replayer(macro, loops);
             String refusal = run.start(mc);
             if (refusal != null) {
-                note = "run macro refused: " + refusal;
+                note = "stopped: run macro refused: " + refusal;
                 return false;
             }
             leg = run;
@@ -193,7 +204,7 @@ public final class FarmRunner implements Task {
                     + (loops == 0 ? " - it will keep going until a guard stops it" : ""));
             return true;
         } catch (Exception e) {
-            note = "could not load the run macro: " + e.getMessage();
+            note = "stopped: could not load the run macro: " + e.getMessage();
             return false;
         }
     }
@@ -223,6 +234,7 @@ public final class FarmRunner implements Task {
                 farm.id, phase.name().toLowerCase(Locale.ROOT).replace('_', ' '), inner);
     }
 
+    @Override
     public String outcome() {
         return note;
     }
