@@ -411,9 +411,10 @@ public final class Mcp {
             JsonObject o = new JsonObject();
             o.addProperty("ok", true);
             o.add("farm", f.toJson());
-            o.addProperty("note", isNew
-                    ? "Added. It needs a runMacro before farm_start will do anything."
-                    : "Updated.");
+            boolean runnable = f.runMacro != null && !f.runMacro.isBlank();
+            o.addProperty("note", (isNew ? "Added." : "Updated.")
+                    + (runnable ? " farm_start can run it now."
+                                : " It needs a runMacro before farm_start will do anything."));
             return GSON.toJson(o);
         });
     }
