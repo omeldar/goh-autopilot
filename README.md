@@ -150,8 +150,14 @@ Three ways of getting about, and the mod picks the honest one rather than the cl
   up out of water. It is not a pathfinder and does not pretend to be: it will not dig, bridge
   or cross a gap, and it refuses to walk off a drop further than it can survive. When it
   cannot make progress it stops and says so, rather than improvising into a ravine.
-- **Fly** is creative flight, where distance is free and nothing can go wrong. It climbs to a
-  cruising height, reacts to terrain in front of it and sets down on the target.
+- **Fly** is creative flight. It climbs straight up to cruising height before moving off (so a
+  treeline cannot catch it mid-climb), cruises, brakes so the momentum runs out over the target,
+  and comes straight down onto the block. Hovering is what makes it precise: tested, it set down
+  on the exact recorded block of a hilltop farm 80 blocks away. If something boxes it in the air
+  it climbs, and after eight seconds without progress it stops and says where.
+
+Whichever way it travels, a y with nothing to stand on is answered rather than circled: "arrived
+over 54 25, but on the ground at y 73 rather than the y 102 asked for".
 - **Elytra** only ever *assists* a glide you have already started. It steers, spends rockets
   and brings you down gently - and it will never launch you off a cliff by itself.
 
