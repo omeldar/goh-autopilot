@@ -60,10 +60,17 @@ public final class LumiLink {
             d.addProperty("tokenHeader", "X-Autopilot-Token");
             d.addProperty("token", cfg.bridgeToken);
             d.addProperty("hint",
-                    "Tools for automating a farm by replaying what the player recorded. Read "
-                  + "ap_list_farms before offering to start one, and ap_get_status before "
-                  + "anything positional.");
-
+                    "Autopilot automates a farm by replaying key presses the player recorded once "
+                  + "(\"my macro\", \"the farm run\", \"autoclicker\"). It cannot invent a macro. "
+                  + "Read ap_list_farms before offering to start a farm, and ap_get_status before "
+                  + "anything positional; ap_get_status also says why the last run stopped. "
+                  + "For the player: End stops everything (always, and touching a movement key "
+                  + "does too); recording has no key until they bind one on the GoH setup's keys "
+                  + "page or in Controls. Commands: /ap (status), /ap rec <name>, /ap rec stop, "
+                  + "/ap play <macro> [loops], /ap loop <macro>, /ap stop, /ap click <cps> "
+                  + "[button] [seconds], /ap goto <x> <y> <z> [walk|fly], /ap farm add <id>, "
+                  + "/ap farm start <id>, /ap list. A run stops by itself on damage, low health or "
+                  + "food, a full inventory, a worn tool, an open screen, or chat saying their name.");
             JsonArray tools = new JsonArray();
             for (var el : Mcp.toolList()) {
                 tools.add(el.getAsJsonObject().get("name").getAsString());
